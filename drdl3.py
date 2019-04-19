@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import glob
 import os
 import re
+import shutil
 from datetime import datetime
 
 import requests
@@ -11,16 +13,39 @@ from crontab import CronTab
 from dateutil.parser import parse
 
 PROGRAM_CARD_BASE_URL = 'https://www.dr.dk/mu-online/api/1.4/programcard/'
+OLD_PC_BASE_URL = 'https://www.dr.dk/mu/programcard/'
 BUNDLE_BASE_URL = 'https://www.dr.dk/mu/bundle/'
 
 
+def get_slug_plex_path_from_episode(episode, tvshow_dir):
+    def trim_title(title):
+        title = title.replace('\'', '').replace('-', '')
+        title = re.sub(r'\s+', ' ', title)
+        return title.replace(' ', '.')
+    request = requests.get(OLD_PC_BASE_URL + episode.get('Urn'))
+    episode_data = request.json().get('Data')[0]
+    original_title = trim_title(episode_data.get('Broadcasts')[0].get('OriginalTitle', episode.get('SeriesTitle')))
+    season_number = episode_data.get('SeasonNumber', 1)
+    episode_number = episode_data.get('EpisodeNumber')
+    if tvshow_dir:
+        path = os.path.join(args.outputdir, original_title, f'Season{season_number:02}',
+                            f'{original_title}.S{season_number:02}E{episode_number:02}')
+    else:
+        path = os.path.join(args.outputdir, f'{original_title}.S{season_number:02}E{episode_number:02}')
+    return {episode.get('Slug'): path}
+
+
 def download(args):
+    args.outputdir = os.path.expanduser(args.outputdir)
     # Get program card
     url = args.url
     program_card = program_card_from_url(url)
     dl_url_list = []
+    item_to_path = {}
     if program_card.get('PresentationUri'):
         dl_url_list.append(program_card.get('PresentationUri'))
+        if args.plexify:
+            item_to_path = {**item_to_path, **get_slug_plex_path_from_episode(program_card, tvshow_dir=False)}
 
     # Get all from tv-series or season
     if args.tvseries or args.season:
@@ -33,17 +58,33 @@ def download(args):
             if args.tvseries or (args.season and season['SeasonNumber'] == program_card['SeasonNumber']):
                 for episode in season.get('Episodes').get('Items'):
                     dl_url_list.append(episode.get('PresentationUri'))
+                    if args.plexify:
+                        item_to_path = {**item_to_path, **get_slug_plex_path_from_episode(episode, tvshow_dir=True)}
 
     ydl_opts = {
         'write_all_thumbnails': True,
-        'writesubtitles': True
+        'writesubtitles': True,
+        'restrictfilenames': True,
+        'noprogress': True,
+        'download_archive': 'youtube-dl-archive.txt'
     }
-    if args.outputdir:
-        os.chdir(args.outputdir)
+    if args.plexify:
+        ydl_opts['outtmpl'] = '%(id)s.%(ext)s'
     if not dl_url_list:
         print('[drdl3] no episodes available')
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download(dl_url_list)
+
+    if args.plexify:
+        for item, target_path in item_to_path.items():
+            for src_file in glob.glob(f'{item}*'):
+                target_dir = os.path.dirname(target_path)
+                extension = os.path.splitext(src_file)[1]
+                if not os.path.exists(target_dir):
+                    print(f'[drdl3] Creating directory {target_path}')
+                    os.makedirs(target_dir)
+                print(f'[drdl3] Moving {src_file} to {target_path + extension}')
+                shutil.move(src_file, target_path + extension)
 
     if args.subscribe:
         add_subscription(args)
@@ -58,6 +99,8 @@ def upcoming(args):
     members = bundle_data.get('Relations')
     members = [mem['Slug'] for mem in members if mem['Kind'] == 'Member' and 'BundleType' not in mem]
 
+    if not members:
+        print('[drdl3] No upcoming episodes found')
     for member in members:
         request = requests.get(PROGRAM_CARD_BASE_URL + member)
         data = request.json()
@@ -90,6 +133,7 @@ def list_subscriptions(args):
 
 
 def add_subscription(args):
+    args.outputdir = os.path.expanduser(args.outputdir)
     cron = CronTab(user=True)
     job_args = 'dl ' + args.url
     job_args += f' -o {args.outputdir}' if args.outputdir else ''
@@ -123,11 +167,13 @@ if __name__ == '__main__':
     # Download subparser
     dl_subparser = subparsers.add_parser('dl', help='Download episodes')
     dl_subparser.add_argument('url', help='Url to video from dr.dk/tv')
-    dl_subparser.add_argument('-o', '--outputdir', help='Specify output directory')
+    dl_subparser.add_argument('-o', '--outputdir', help='Specify output directory', default=os.getcwd())
     dl_subparser.add_argument('-t', '--tvseries', action='store_true', help='Download all available in tv series')
     dl_subparser.add_argument('-s', '--season', action='store_true', help='Download all available in the season')
+    dl_subparser.add_argument('-p', '--plexify', action='store_false',
+                              help='Disable plexify and use youtube-dl\'s default title format')
     dl_subparser.add_argument('--subscribe', action='store_true',
-                              help='Subscribe to the episode, season or series.')
+                              help='Subscribe to the episode, season or series')
     dl_subparser.set_defaults(func=download)
 
     # List subscriptions subparser
@@ -137,7 +183,7 @@ if __name__ == '__main__':
     # Add subscription subparser
     a_subscriptions_parser = subparsers.add_parser('add', help='Add new subscription')
     a_subscriptions_parser.add_argument('url', help='Url to video from dr.dk/tv')
-    a_subscriptions_parser.add_argument('-o', '--outputdir', help='Specify output directory')
+    a_subscriptions_parser.add_argument('-o', '--outputdir', help='Specify output directory', default=os.getcwd())
     a_subscriptions_parser.add_argument('-t', '--tvseries', action='store_true', help='Subscribe to the tv series')
     a_subscriptions_parser.add_argument('-s', '--season', action='store_true', help='Subscribe to the season')
     a_subscriptions_parser.add_argument('-r', '--rate', default=2, type=int, nargs='?',

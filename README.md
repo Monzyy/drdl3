@@ -23,7 +23,7 @@ positional arguments:
 ```
 Downloading:
 ```
-usage: drdl3.py dl [-h] [-o OUTPUTDIR] [-t] [-s] [--subscribe] url
+usage: drdl3.py dl [-h] [-o OUTPUTDIR] [-t] [-s] [-p] [--subscribe] url
 
 positional arguments:
   url                   Url to video from dr.dk/tv
@@ -34,7 +34,9 @@ optional arguments:
                         Specify output directory
   -t, --tvseries        Download all available in tv series
   -s, --season          Download all available in the season
-  --subscribe           Subscribe to the episode, season or series.
+  -p, --plexify         Disable plexify and use youtube-dl's default title
+                        format
+  --subscribe           Subscribe to the episode, season or series
 ```
 Subscribe:
 ```
