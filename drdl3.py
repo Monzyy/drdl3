@@ -17,11 +17,28 @@ OLD_PC_BASE_URL = 'https://www.dr.dk/mu/programcard/'
 BUNDLE_BASE_URL = 'https://www.dr.dk/mu/bundle/'
 
 
+def program_card_from_url(url):
+    program_card_url = PROGRAM_CARD_BASE_URL + url[url.rfind('/') + 1:]
+    request = requests.get(program_card_url)
+    return request.json()
+
+
+def trim_title(title):
+    title = title.replace('\'', '').replace('-', '')
+    title = re.sub(r'\s+', ' ', title)
+    return title.replace(' ', '.')
+
+
+def get_plex_filename(episode):
+    request = requests.get(OLD_PC_BASE_URL + episode.get('Urn'))
+    episode_data = request.json().get('Data')[0]
+    title = trim_title(episode_data.get('Broadcasts')[0].get('OriginalTitle', episode.get('SeriesTitle')))
+    season_number = episode_data.get('SeasonNumber', 1)
+    episode_number = episode_data.get('EpisodeNumber')
+    return f'{title}.S{season_number:02}E{episode_number:02}'
+
+
 def get_slug_plex_path_from_episode(episode, tvshow_dir):
-    def trim_title(title):
-        title = title.replace('\'', '').replace('-', '')
-        title = re.sub(r'\s+', ' ', title)
-        return title.replace(' ', '.')
     request = requests.get(OLD_PC_BASE_URL + episode.get('Urn'))
     episode_data = request.json().get('Data')[0]
     original_title = trim_title(episode_data.get('Broadcasts')[0].get('OriginalTitle', episode.get('SeriesTitle')))
@@ -154,10 +171,18 @@ def remove_subscription(args):
     cron.write()
 
 
-def program_card_from_url(url):
-    program_card_url = PROGRAM_CARD_BASE_URL + url[url.rfind('/') + 1:]
-    request = requests.get(program_card_url)
-    return request.json()
+def list_available(args):
+    program_card = program_card_from_url(args.url)
+    series_urn = program_card.get('SeriesUrn')
+    series_url = 'https://www.dr.dk/mu-online/api/1.4/list/view/seasons?id=' + series_urn + '&limit=0'
+    request = requests.get(series_url)
+    series_data = request.json()
+    for season in series_data.get('Items'):
+        for episode in season.get('Episodes').get('Items'):
+            title = episode.get('Title')
+            plex_title = get_plex_filename(episode)
+            duration = episode.get('PrimaryAsset').get('DurationInMilliseconds') / 60000
+            print(f'[drdl3] Title: {title}\tPlex title: {plex_title}.mp4\tDuration: {duration:.2f} min')
 
 
 if __name__ == '__main__':
@@ -200,6 +225,10 @@ if __name__ == '__main__':
     upcoming_parser = subparsers.add_parser('upcoming', help='List upcoming episodes')
     upcoming_parser.add_argument('url', help='Url to video from dr.dk/tv')
     upcoming_parser.set_defaults(func=upcoming)
+
+    l_available_parser = subparsers.add_parser('list', help='List available in series')
+    l_available_parser.add_argument('url', help='Url to video in series from dr.dk/tv')
+    l_available_parser.set_defaults(func=list_available)
 
     args = parser.parse_args()
     args.func(args)
