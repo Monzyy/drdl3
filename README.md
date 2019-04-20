@@ -10,16 +10,20 @@ pip install -r requirements.txt
 
 Commands:
 ```
-usage: drdl3.py [-h] {dl,lsubs,add,rsubs,upcoming} ...
+usage: drdl3.py [-h] {dl,lsubs,add,rsubs,upcoming,list} ...
 
 positional arguments:
-  {dl,lsubs,add,rsubs,upcoming}
+  {dl,lsubs,add,rsubs,upcoming,list}
                         Sub-command help
     dl                  Download episodes
     lsubs               List subscriptions
     add                 Add new subscription
     rsubs               Remove subscriptions
     upcoming            List upcoming episodes
+    list                List available in series
+
+optional arguments:
+  -h, --help            show this help message and exit
 ```
 Downloading:
 ```
@@ -64,4 +68,23 @@ positional arguments:
 optional arguments:
   -h, --help  show this help message and exit
 ```
+Upcoming:
+```
+usage: drdl3.py upcoming [-h] url
 
+positional arguments:
+  url         Url to video from dr.dk/tv
+
+optional arguments:
+  -h, --help  show this help message and exit
+```
+List available in series:
+```
+usage: drdl3.py list [-h] url
+
+positional arguments:
+  url         Url to video in series from dr.dk/tv
+
+optional arguments:
+  -h, --help  show this help message and exit
+```
